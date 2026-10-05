@@ -121,7 +121,7 @@ textarea:disabled { opacity: .55; }
 .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
 
 /* ---------- Pipeline step cards ---------- */
-.steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.steps { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
 .step {
   position: relative; display: grid; gap: 6px; text-align: center; padding: 14px 8px;
   border: 1px dashed rgba(124,92,255,.55); border-radius: 12px; background: rgba(10,2,32,.6);

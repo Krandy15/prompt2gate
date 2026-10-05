@@ -12,6 +12,8 @@ window.P2G_STAGES = [
   { id: "ingest",     label: "Prompt Ingest",      hint: "Specification received" },
   { id: "rtl",        label: "RTL Inference",      hint: "LLM writes Verilog-2001" },
   { id: "compile",    label: "Icarus Linting",     hint: "iverilog -Wall -g2001 + self-heal" },
+  { id: "testbench",  label: "Testbench Gen",      hint: "LLM writes a self-checking testbench" },
+  { id: "simulate",   label: "Timing Simulation",  hint: "vvp run + VCD waveform" },
   { id: "synthesize", label: "Netlist Extraction", hint: "Yosys netlist + stats" },
   { id: "ready",      label: "Verified Ready",     hint: "Design verified" },
 ];

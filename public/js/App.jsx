@@ -53,7 +53,7 @@ function TabContent({ tab, result }) {
     if (result.waveform) return <window.WaveformViewer waveform={result.waveform} />;
     return (
       <Note title="No waveform for this design">
-        Timing simulation needs a testbench + simulation run, which the backend does not generate yet.
+        The testbench did not run or wrote no waveform. See the Verification Trace for details.
       </Note>
     );
   }
@@ -67,7 +67,7 @@ function TabContent({ tab, result }) {
     if (result.testbench) return <window.TestbenchTab result={result} />;
     return (
       <Note title="No testbench generated">
-        Testbench generation is not part of the backend pipeline yet.
+        No testbench was produced for this design. See the Verification Trace for details.
       </Note>
     );
   }

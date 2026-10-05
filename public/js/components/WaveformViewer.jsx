@@ -17,7 +17,7 @@
     if (radix === "dec") return String(v);
     return v.toString(16).toUpperCase().padStart(Math.ceil(w / 4), "0");
   }
-  const niceStep = (ppu) => [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 5000, 10000].find((s) => s * ppu >= 64) || 10000;
+  const niceStep = (ppu) => [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 500000, 1000000].find((s) => s * ppu >= 64) || 1000000;
 
   function WaveformViewer({ waveform, title = "Waveform" }) {
     const scroller = useRef(null), svgRef = useRef(null);
@@ -29,7 +29,7 @@
     const end = (waveform && waveform.endTime) || 1;
     const unit = ((waveform && waveform.timescale) || "ns").replace(/[^a-z]/gi, "") || "ns";
 
-    const fit = () => { const el = scroller.current; if (el) setPpu(clamp((el.clientWidth - PADX * 2) / end, 0.5, 80)); };
+    const fit = () => { const el = scroller.current; if (el) setPpu(clamp((el.clientWidth - PADX * 2) / end, 0.0005, 80)); };
     useEffect(fit, [waveform]);
 
     if (!sigs.length) {
