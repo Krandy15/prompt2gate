@@ -33,7 +33,7 @@ const config = {
   llm: {
     provider: provider === "ollama" ? "ollama" : "gemini",
     temperature: 0.15,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
     requestTimeoutMs: 60_000,
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || "",
@@ -47,8 +47,8 @@ const config = {
   },
 
   pipeline: {
-    maxCompileAttempts: 2,   // stage 2 self-heal
-    maxTestbenchAttempts: 2, // stage 3-4 self-heal
+    maxCompileAttempts: 3,   // stage 2 self-heal
+    maxTestbenchAttempts: 3, // stage 3-4 self-heal
   },
 
   limits: {
