@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prompt2Gate — Natural Language to Synthesizable Silicon RTL</title>
+  
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- React 18 & Babel for seamless in-browser execution -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    pre, code, .font-mono { font-family: 'JetBrains+Mono', monospace; }
+    .circuit-bg {
+      background-image: radial-gradient(rgba(14, 165, 233, 0.08) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen circuit-bg">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Presets with verified Verilog & Schematics
+    const PRESETS = [
+      {
+        id: "counter",
+        title: "4-Bit Sync Counter",
+        category: "Sequential",
+        prompt: "Design a 4-bit synchronous up/down counter with active-high synchronous reset, enable signal, and overflow flag.",
+        verilog: `\`timescale 1ns/1ps
+module sync_counter_4bit (
+    input wire clk,
+    input wire rst,
+    input wire en,
+    input wire up_down,       // 1: Count Up, 0: Count Down
+    output reg [3:0] count,
+    output wire overflow
+);
+
+assign overflow = (up_down && (count == 4'b1111)) || (!up_down && (count == 4'b0000));
+
+always @(posedge clk) begin
+    if (rst) begin
+        count <= 4'b0000;
+    end else if (en) begin
+        if (up_down)
+            count <= count + 1'b1;
+        else
+            count <= count - 1'b1;
+    end
+end
+
+endmodule`,
+        signals: [
+          { name: "clk", data: "0101010101010101" },
+          { name: "rst", data: "1100000000000000" },
+          { name: "en",  data: "0011111111111111" },
+          { name: "dir", data: "0011111111000000" },
+          { name: "cnt", data: "0001234567654321" },
+          { name: "ovf", data: "0000000001000000" }
+        ],
+        schematicType: "counter"
+      },
+      {
+        id: "fsm",
+        title: "1011 Sequence Detector",
+        category: "FSM",
+        prompt: "Synthesize an overlapping sequence detector for bitstream '1011' using a Mealy Finite State Machine with active-high synchronous reset.",
+        verilog: `\`timescale 1ns/1ps
+module seq_detector_1011 (
+    input wire clk,
+    input wire rst,
+    input wire din,
+    output reg detected
+);
+
+localparam S_IDLE = 2'b00,
+           S_1    = 2'b01,
+           S_10   = 2'b10,
+           S_101  = 2'b11;
+
+reg [1:0] state, next_state;
+
+always @(posedge clk) begin
+    if (rst) state <= S_IDLE;
+    else state <= next_state;
+end
+
+always @(*) begin
+    detected = 1'b0;
+    case (state)
+        S_IDLE: next_state = din ? S_1 : S_IDLE;
+        S_1:    next_state = din ? S_1 : S_10;
+        S_10:   next_state = din ? S_101 : S_IDLE;
+        S_101: begin
+            if (din) begin
+                detected = 1'b1;
+                next_state = S_1;
+            end else next_state = S_10;
+        end
+        default: next_state = S_IDLE;
+    endcase
+end
+
+endmodule`,
+        signals: [
+          { name: "clk", data: "0101010101010101" },
+          { name: "rst", data: "1100000000000000" },
+          { name: "din", data: "0010110101100000" },
+          { name: "st",  data: "0012312312100000" },
+          { name: "det", data: "0000010000100000" }
+        ],
+        schematicType: "fsm"
+      },
+      {
+        id: "alu",
+        title: "4-Bit Compact ALU",
+        category: "DataPath",
+        prompt: "Synthesize a 4-bit Arithmetic Logic Unit (ALU) supporting ADD, SUB, AND, OR, XOR with zero flag and carry out.",
+        verilog: `\`timescale 1ns/1ps
+module alu_4bit (
+    input wire [3:0] a,
+    input wire [3:0] b,
+    input wire [2:0] opcode,
+    output reg [3:0] result,
+    output reg carry_out,
+    output wire zero_flag
+);
+
+assign zero_flag = (result == 4'b0000);
+
+always @(*) begin
+    carry_out = 1'b0;
+    case (opcode)
+        3'b000: {carry_out, result} = a + b;
+        3'b001: {carry_out, result} = a - b;
+        3'b010: result = a & b;
+        3'b011: result = a | b;
+        3'b100: result = a ^ b;
+        default: result = 4'b0000;
+    endcase
+end
+
+endmodule`,
+        signals: [
+          { name: "clk", data: "0101010101010101" },
+          { name: "op",  data: "0000111122223333" },
+          { name: "res", data: "123456789ABCDEF0" },
+          { name: "zf",  data: "0000000000000001" }
+        ],
+        schematicType: "alu"
+      }
+    ];
+
+    // Parses `module name (ports);` from the *actual* generated Verilog (ANSI-style ports).
+    function parseModule(src) {
+      const clean = (src || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      const m = clean.match(/\bmodule\s+(\w+)\s*(?:#\s*\([\s\S]*?\)\s*)?\(([\s\S]*?)\)\s*;/);
+      if (!m) return null;
+      const ports = [];
+      let dir = null, range = "";
+      for (const raw of m[2].split(",")) {
+        let t = raw.replace(/\s+/g, " ").trim();
+        if (!t) continue;
+        const dm = t.match(/^(input|output|inout)\b/);
+        if (dm) { dir = dm[1]; range = ""; t = t.slice(dm[0].length); }
+        t = t.replace(/\b(wire|reg|logic|signed)\b/g, "").trim();
+        const rm = t.match(/\[[^\]]+\]/);
+        if (rm) { range = rm[0].replace(/\s+/g, ""); t = t.replace(rm[0], "").trim(); }
+        const name = (t.match(/(\w+)\s*$/) || [])[1];
+        if (name && dir) ports.push({ name, dir, range });
+      }
+      return ports.length ? { name: m[1], ports } : null;
+    }
+
+    function PortDiagram({ verilog }) {
+      const mod = parseModule(verilog);
+      if (!mod) {
+        return <p className="text-sm text-slate-500 font-mono">Could not parse a module port list from this Verilog.</p>;
+      }
+      const ins = mod.ports.filter((p) => p.dir !== "output");
+      const outs = mod.ports.filter((p) => p.dir === "output");
+      const ROW = 30, TOP = 64, W = 700, bx = 230, bw = 240;
+      const rows = Math.max(ins.length, outs.length, 1);
+      const bh = TOP + rows * ROW;
+      const clocked = /\b(posedge|negedge)\b/.test(verilog || "");
+      const lbl = (p) => p.name + (p.range || "");
+      return (
+        <svg viewBox={`0 0 ${W} ${bh + 50}`} className="w-full max-w-2xl">
+          <rect x={bx} y={20} width={bw} height={bh} rx="6" fill="#0f172a" stroke="#10b981" strokeWidth="2" />
+          <text x={bx + bw / 2} y={46} fill="#10b981" fontSize="13" fontWeight="bold" textAnchor="middle" fontFamily="monospace">{mod.name}</text>
+          <text x={bx + bw / 2} y={bh + 8} fill="#64748b" fontSize="10" textAnchor="middle" fontFamily="monospace">{clocked ? "sequential (clocked)" : "combinational"}</text>
+          {ins.map((p, i) => {
+            const y = TOP + 10 + i * ROW;
+            const isClk = /^(clk|clock)/i.test(p.name);
+            return (
+              <g key={"i" + p.name}>
+                <line x1={bx - 60} y1={y} x2={bx} y2={y} stroke="#38bdf8" strokeWidth="2" />
+                <text x={bx - 66} y={y + 4} fill="#38bdf8" fontSize="11" textAnchor="end" fontFamily="monospace">{lbl(p)}</text>
+                {isClk && <path d={`M ${bx} ${y - 5} L ${bx + 8} ${y} L ${bx} ${y + 5}`} fill="none" stroke="#94a3b8" strokeWidth="1.5" />}
+              </g>
+            );
+          })}
+          {outs.map((p, i) => {
+            const y = TOP + 10 + i * ROW;
+            return (
+              <g key={"o" + p.name}>
+                <line x1={bx + bw} y1={y} x2={bx + bw + 60} y2={y} stroke="#34d399" strokeWidth="2" />
+                <circle cx={bx + bw + 60} cy={y} r="3.5" fill="#34d399" />
+                <text x={bx + bw + 68} y={y + 4} fill="#34d399" fontSize="11" fontFamily="monospace">{lbl(p)}</text>
+              </g>
+            );
+          })}
+        </svg>
+      );
+    }
+
+    function App() {
+      const [selectedPreset, setSelectedPreset] = useState(PRESETS[0]);
+      const [inputPrompt, setInputPrompt] = useState(PRESETS[0].prompt);
+      const [activeTab, setActiveTab] = useState("verilog");
+      const [isCompiling, setIsCompiling] = useState(false);
+      const [compilationProgress, setCompilationProgress] = useState(5);
+      const [liveLogs, setLiveLogs] = useState(null);
+      const [liveVerilog, setLiveVerilog] = useState(null);
+      const [liveSchematic, setLiveSchematic] = useState(null);
+      const [schemZoom, setSchemZoom] = useState(100);
+      const [pipelineError, setPipelineError] = useState(null);
+      const [copyStatus, setCopyStatus] = useState(false);
+
+      const terminalBottomRef = useRef(null);
+
+      useEffect(() => {
+        if (window.lucide) window.lucide.createIcons();
+      }, [activeTab, isCompiling, liveLogs]);
+
+      useEffect(() => {
+        if (terminalBottomRef.current) {
+          terminalBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, [liveLogs]);
+
+      const handlePresetChange = (preset) => {
+        setSelectedPreset(preset);
+        setInputPrompt(preset.prompt);
+        setLiveVerilog(null);
+        setLiveSchematic(null);
+        setLiveLogs(null);
+        setPipelineError(null);
+        setCompilationProgress(5);
+      };
+
+      const API_BASE = window.location.protocol === "file:" ? "http://localhost:8787" : "";
+
+      const handleSynthesize = async () => {
+        setIsCompiling(true);
+        setCompilationProgress(1);
+        setLiveLogs([]);
+        setLiveVerilog(null);
+        setLiveSchematic(null);
+        setPipelineError(null);
+
+        try {
+          const res = await fetch(API_BASE + "/api/synthesize/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: inputPrompt }),
+          });
+
+          if (!res.ok || !res.body) throw new Error(`Server returned HTTP ${res.status}`);
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          const handleLine = (line) => {
+            if (!line.trim()) return;
+            let evt;
+            try { evt = JSON.parse(line); } catch { return; }
+            if (evt.type === "log") {
+              setLiveLogs((prev) => [...(prev || []), evt.log]);
+              const t = evt.log.text;
+              if (t.includes("[LLM]")) setCompilationProgress((p) => Math.max(p, 2));
+              if (t.includes("[YOSYS")) setCompilationProgress((p) => Math.max(p, 4));
+              if (t.includes("[COMPILER") || t.includes("[SELF-HEALING")) setCompilationProgress((p) => Math.max(p, 3));
+            } else if (evt.type === "done") {
+              setLiveVerilog(evt.result.verilog);
+              setLiveSchematic(evt.result.schematicSvg || null);
+              setCompilationProgress(evt.result.success ? 5 : 3);
+              setIsCompiling(false);
+            } else if (evt.type === "error") {
+              setPipelineError(evt.error);
+              setIsCompiling(false);
+            }
+          };
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+
+            for (const line of lines) handleLine(line);
+          }
+          if (buffer.trim()) handleLine(buffer);
+          setIsCompiling(false); // safety net if the stream ends without a 'done' event
+        } catch (err) {
+          setPipelineError(err.message);
+          setIsCompiling(false);
+          setLiveLogs((prev) => [
+            ...(prev || []),
+            { type: "error", text: `[SYSTEM ERROR] Connection failed: ${err.message}` }
+          ]);
+        }
+      };
+
+      const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        setCopyStatus(true);
+        setTimeout(() => setCopyStatus(false), 2000);
+      };
+
+      const currentVerilog = liveVerilog || selectedPreset.verilog;
+
+      return (
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col min-h-screen">
+          {/* Header */}
+          <header className="border-b border-slate-800 pb-5 mb-6 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-sky-500/10 border border-sky-500/30 p-2.5 rounded-xl text-sky-400">
+                <i data-lucide="cpu" className="w-6 h-6"></i>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-white">Prompt2Gate</h1>
+                  <span className="text-xs font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20 px-2 py-0.5 rounded-full">v1.2</span>
+                </div>
+                <p className="text-xs text-slate-400">Deterministic NL → Synthesizable Verilog & Gate Schematic Compiler</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 font-mono text-xs">
+              <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                iverilog: Active
+              </div>
+              <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-slate-300">
+                LLM: Groq Free Tier
+              </div>
+            </div>
+          </header>
+
+          {pipelineError && (
+            <div className="mb-4 bg-rose-500/10 border border-rose-500/30 p-4 rounded-xl text-rose-400 text-sm flex items-center justify-between">
+              <span>{pipelineError}</span>
+              <button onClick={() => setPipelineError(null)} className="text-xs underline">Dismiss</button>
+            </div>
+          )}
+
+          {/* Prompt Section */}
+          <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 mb-6 shadow-xl backdrop-blur-sm">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-slate-400 tracking-wide uppercase">Hardware Specification</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Presets:</span>
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handlePresetChange(p)}
+                    className={`text-xs px-2.5 py-1 rounded-md transition-all ${
+                      selectedPreset.id === p.id 
+                        ? 'bg-sky-500 text-white font-medium shadow-sm' 
+                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {p.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              rows={3}
+              value={inputPrompt}
+              onChange={(e) => setInputPrompt(e.target.value)}
+              placeholder="Describe your digital logic circuit in natural language..."
+              className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 font-mono transition-all resize-none"
+            />
+
+            <div className="flex items-center justify-between mt-4">
+              <div className="flex items-center gap-4 text-xs text-slate-400">
+                <span className="flex items-center gap-1.5"><i data-lucide="shield-check" className="w-4 h-4 text-emerald-400"></i> Strict Verilog-2001</span>
+                <span className="flex items-center gap-1.5"><i data-lucide="refresh-cw" className="w-4 h-4 text-sky-400"></i> Max 2 Self-Healing Tries</span>
+              </div>
+              <button
+                onClick={handleSynthesize}
+                disabled={isCompiling}
+                className="bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 disabled:opacity-50 text-white font-medium text-sm px-5 py-2.5 rounded-xl shadow-lg shadow-sky-500/20 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <i data-lucide={isCompiling ? "loader-2" : "zap"} className={`w-4 h-4 ${isCompiling ? "animate-spin" : ""}`}></i>
+                {isCompiling ? "Synthesizing & Linting..." : "Synthesize RTL"}
+              </button>
+            </div>
+          </section>
+
+          {/* Progress Tracker */}
+          <div className="grid grid-cols-5 gap-2 mb-6 text-xs font-mono">
+            {[
+              { num: 1, label: "Prompt Ingest" },
+              { num: 2, label: "RTL Inference" },
+              { num: 3, label: "Icarus Linting" },
+              { num: 4, label: "Netlist Extraction" },
+              { num: 5, label: "Verified Ready" },
+            ].map((s) => (
+              <div
+                key={s.num}
+                className={`border rounded-lg p-2.5 text-center transition-all ${
+                  compilationProgress >= s.num
+                    ? "bg-sky-500/10 border-sky-500/40 text-sky-400 font-semibold"
+                    : "bg-slate-900/40 border-slate-800 text-slate-500"
+                }`}
+              >
+                <div className="text-[10px] uppercase tracking-wider opacity-60">Step {s.num}</div>
+                <div>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Workspace Tabs */}
+          <div className="flex-1 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-2xl backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 pt-2 bg-slate-950/40">
+              <div className="flex gap-2">
+                {[
+                  { id: "verilog", label: "Verilog-2001 Source", icon: "file-code" },
+                  { id: "schematic", label: "Logic Schematic", icon: "git-commit" },
+                  { id: "waveform", label: "Timing Simulation", icon: "activity" },
+                  { id: "terminal", label: "Verification Trace", icon: "terminal" }
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setActiveTab(t.id)}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-all ${
+                      activeTab === t.id
+                        ? "border-sky-500 text-sky-400 bg-sky-500/5"
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <i data-lucide={t.icon} className="w-3.5 h-3.5"></i>
+                    {t.label}
+                    {t.id === "terminal" && liveLogs && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === "verilog" && (
+                <button
+                  onClick={() => copyToClipboard(currentVerilog)}
+                  className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 px-3 py-1 bg-slate-800 rounded-lg hover:bg-slate-700 transition"
+                >
+                  <i data-lucide={copyStatus ? "check" : "copy"} className="w-3.5 h-3.5"></i>
+                  {copyStatus ? "Copied" : "Copy Code"}
+                </button>
+              )}
+            </div>
+
+            {/* Tab Panes */}
+            <div className="p-6 flex-1 overflow-auto">
+              {activeTab === "verilog" && (
+                <div className="relative">
+                  <pre className="text-xs text-sky-200 font-mono bg-slate-950 p-5 rounded-xl border border-slate-800/80 leading-relaxed overflow-x-auto">
+                    <code>{currentVerilog}</code>
+                  </pre>
+                </div>
+              )}
+
+              {activeTab === "schematic" && (
+                <div className="flex flex-col items-center justify-center p-4 bg-slate-950 rounded-xl border border-slate-800 min-h-[350px]">
+                  {liveSchematic ? (
+                    <>
+                      <div className="flex items-center gap-2 self-end mb-2 text-xs font-mono">
+                        <button onClick={() => setSchemZoom((z) => Math.max(50, z - 25))} className="px-2 py-1 rounded bg-slate-800 text-slate-200 hover:bg-slate-700">−</button>
+                        <span className="text-slate-400 w-12 text-center">{schemZoom}%</span>
+                        <button onClick={() => setSchemZoom((z) => Math.min(600, z + 25))} className="px-2 py-1 rounded bg-slate-800 text-slate-200 hover:bg-slate-700">+</button>
+                        <button onClick={() => setSchemZoom(100)} className="px-2 py-1 rounded bg-slate-800 text-slate-200 hover:bg-slate-700">Fit</button>
+                      </div>
+                      <div className="w-full overflow-auto max-h-[70vh]">
+                        <div style={{ width: `${schemZoom}%` }} dangerouslySetInnerHTML={{ __html: liveSchematic }} />
+                      </div>
+                    </>
+                  ) : (
+                    <PortDiagram verilog={currentVerilog} />
+                  )}
+                  <p className="text-xs text-slate-500 mt-4 font-mono text-center">
+                    {liveSchematic
+                      ? "Netlist elaborated by Yosys from the generated module — not technology-mapped. Use +/− to zoom and scroll to pan."
+                      : "Port-level view parsed from the Verilog shown. Install Yosys + Graphviz for a full netlist."}
+                  </p>
+                </div>
+              )}
+
+              {activeTab === "waveform" && liveVerilog && (
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 text-sm text-slate-400 font-mono">
+                  Waveforms aren't generated for custom designs yet (that needs a testbench + simulation run).
+                  The preset waveforms would not match this module, so they are hidden.
+                </div>
+              )}
+
+              {activeTab === "waveform" && !liveVerilog && (
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2">
+                    <span className="font-mono">Signal Bus</span>
+                    <span className="font-mono">Timing Transitions (T0 → T15)</span>
+                  </div>
+                  {selectedPreset.signals.map((sig) => (
+                    <div key={sig.name} className="flex items-center gap-6 text-xs font-mono">
+                      <span className="w-12 text-slate-400 font-bold">{sig.name}</span>
+                      <div className="flex-1 flex gap-1 h-6 items-center">
+                        {sig.data.split("").map((bit, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex-1 h-full flex items-center justify-center text-[10px] rounded-sm transition-all ${
+                              bit === "1"
+                                ? "bg-sky-500/20 border-t-2 border-sky-400 text-sky-300"
+                                : bit === "0"
+                                ? "bg-slate-900 border-b-2 border-slate-700 text-slate-600"
+                                : "bg-emerald-500/20 border border-emerald-500/40 text-emerald-300"
+                            }`}
+                          >
+                            {bit}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-slate-500 text-right pt-2 font-mono">Illustrative preset waveform</p>
+                </div>
+              )}
+
+              {activeTab === "terminal" && (
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs space-y-2 h-[340px] overflow-y-auto">
+                  {(liveLogs || [
+                    { type: "info", text: "[PROMPT2GATE] Ingesting natural language RTL specification..." },
+                    { type: "info", text: "[LLM] Invoking Groq inference with Llama 3.3 70B..." },
+                    { type: "info", text: "[COMPILER - Attempt 1] Running iverilog -Wall -g2001 ..." },
+                    { type: "success", text: "[COMPILER - Attempt 1] PASSED. Zero errors, zero latch warnings." }
+                  ]).map((log, idx) => (
+                    <div
+                      key={idx}
+                      className={`leading-relaxed ${
+                        log.type === "error"
+                          ? "text-rose-400"
+                          : log.type === "success"
+                          ? "text-emerald-400"
+                          : log.type === "fix"
+                          ? "text-amber-400"
+                          : log.type === "warn"
+                          ? "text-yellow-300"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {log.text}
+                    </div>
+                  ))}
+                  <div ref={terminalBottomRef} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+=== counter ===
+
+   Number of wires:                  8
+   Number of wire bits:             20
+   Number of public wires:           4
+   Number of public wire bits:      16
+   Number of memories:               0
+   Number of memory bits:            0
+   Number of processes:              0
+   Number of cells:                 14
+     $_AND_                          3
+     $_DFF_P_                        4
+     $_MUX_                          2
+     $_NOT_                          1
+     $_XOR_                          4
+

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt2Gate</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="css/viz.css" />
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Order matters: config -> data -> state -> components -> App -->
+  <script src="js/config.js"></script>
+  <script src="js/data/presets.js"></script>
+  <script src="js/utils/verilogPorts.js"></script>
+  <script src="js/utils/vcdToWavedrom.js"></script>
+  <script src="js/data/vizMock.js"></script>
+  <script src="js/data/mockResult.js"></script>
+  <script src="js/api/client.js"></script>
+  <script type="text/babel" src="js/state/useSynthesis.js"></script>
+
+  <script type="text/babel" src="js/components/Header.jsx"></script>
+  <script type="text/babel" src="js/components/ComplexityBadges.jsx"></script>
+  <script type="text/babel" src="js/components/PromptPanel.jsx"></script>
+  <script type="text/babel" src="js/components/PipelineStatus.jsx"></script>
+  <script type="text/babel" src="js/components/TerminalTrace.jsx"></script>
+  <script type="text/babel" src="js/components/Tabs.jsx"></script>
+
+  <!-- Person 2's components (they attach to window.*) -->
+  <script type="text/babel" src="js/components/StatsPanel.jsx"></script>
+  <script type="text/babel" src="js/components/PortDiagram.jsx"></script>
+  <script type="text/babel" src="js/components/CodeEditor.jsx"></script>
+  <script type="text/babel" src="js/components/SchematicViewer.jsx"></script>
+  <script type="text/babel" src="js/components/WaveformViewer.jsx"></script>
+  <script type="text/babel" src="js/components/TestbenchTab.jsx"></script>
+
+  <script type="text/babel" src="js/App.jsx"></script>
+</body>
+</html>

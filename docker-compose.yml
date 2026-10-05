@@ -1,0 +1,15 @@
+services:
+  prompt2gate:
+    build: .
+    image: prompt2gate:latest
+    container_name: prompt2gate
+    ports:
+      - "8787:8787"
+    # Variables are listed explicitly on purpose. Do NOT use `env_file: .env`:
+    # the local .env holds Windows tool paths (DOT_BIN, YOSYS_BIN) that break inside Linux.
+    # Compose fills ${...} from a .env file next to this file, or from your shell.
+    environment:
+      - PORT=8787
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
